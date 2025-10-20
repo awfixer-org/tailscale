@@ -187,6 +187,18 @@ func (a *IngressReconciler) maybeProvision(ctx context.Context, logger *zap.Suga
 		}
 	}
 
+	if opt.Bool(ing.Annotations[AnnotationHTTPRedirect]).EqualBool(true) {
+		logger.Infof("Adding HTTP port 80 handler for redirect")
+		const magic80 = "${TS_CERT_DOMAIN}:80"
+		sc.TCP[80] = &ipn.TCPPortHandler{HTTP: true}
+		sc.Web[magic80] = &ipn.WebServerConfig{
+			Handlers: map[string]*ipn.HTTPHandler{},
+		}
+		if sc.AllowFunnel != nil && sc.AllowFunnel[magic443] {
+			sc.AllowFunnel[magic80] = true
+		}
+	}
+
 	web := sc.Web[magic443]
 
 	var tlsHost string // hostname or FQDN or empty
@@ -202,6 +214,19 @@ func (a *IngressReconciler) maybeProvision(ctx context.Context, logger *zap.Suga
 		logger.Warn("Ingress contains no valid backends")
 		a.recorder.Eventf(ing, corev1.EventTypeWarning, "NoValidBackends", "no valid backends")
 		return nil
+	}
+
+	if opt.Bool(ing.Annotations[AnnotationHTTPRedirect]).EqualBool(true) {
+		logger.Infof("HTTP redirect enabled, creating redirect handlers for port 80")
+		const magic80 = "${TS_CERT_DOMAIN}:80"
+		web80 := sc.Web[magic80]
+		for mountPoint := range handlers {
+			redirectURL := "https://${HOST}${REQUEST_URI}"
+			logger.Infof("Creating redirect handler: %s -> %s", mountPoint, redirectURL)
+			web80.Handlers[mountPoint] = &ipn.HTTPHandler{
+				Redirect: redirectURL,
+			}
+		}
 	}
 
 	crl := childResourceLabels(ing.Name, ing.Namespace, "ingress")
@@ -244,14 +269,21 @@ func (a *IngressReconciler) maybeProvision(ctx context.Context, logger *zap.Suga
 		}
 
 		logger.Debugf("setting Ingress hostname to %q", dev.ingressDNSName)
+		ports := []networkingv1.IngressPortStatus{
+			{
+				Protocol: "TCP",
+				Port:     443,
+			},
+		}
+		if opt.Bool(ing.Annotations[AnnotationHTTPRedirect]).EqualBool(true) {
+			ports = append(ports, networkingv1.IngressPortStatus{
+				Protocol: "TCP",
+				Port:     80,
+			})
+		}
 		ing.Status.LoadBalancer.Ingress = append(ing.Status.LoadBalancer.Ingress, networkingv1.IngressLoadBalancerIngress{
 			Hostname: dev.ingressDNSName,
-			Ports: []networkingv1.IngressPortStatus{
-				{
-					Protocol: "TCP",
-					Port:     443,
-				},
-			},
+			Ports:    ports,
 		})
 	}
 
