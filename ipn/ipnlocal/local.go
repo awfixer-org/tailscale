@@ -270,6 +270,7 @@ type LocalBackend struct {
 	ccGen            clientGen          // function for producing controlclient; lazily populated
 	sshServer        SSHServer          // or nil, initialized lazily.
 	appConnector     *appc.AppConnector // or nil, initialized when configured.
+	Conn25           *appc.Conn25       // or nil, initialized when configured.
 	// notifyCancel cancels notifications to the current SetNotifyCallback.
 	notifyCancel context.CancelFunc
 	cc           controlclient.Client // TODO(nickkhyl): move to nodeBackend
